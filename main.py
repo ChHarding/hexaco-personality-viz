@@ -1,14 +1,17 @@
 # Overview of main.py:
-# This file is the main executable for the project's logic
+# This file is the main executable for the project
 # Simulates the HEXACO personality test for X number of participants
-# Calculates the scores for each participant across the HEXACO attributes
-# Stores these scores in a CSV file via a list of dictionaries (1 per participant)
+# Calculates the scores for each participant across the HEXACO categories
+# Stores these scores in a Pandas dataframe (via 1 list of dictionaries participant)
+# Serves up Dash app in browser to display data in interactive UI using Plotly data visualizations
 
 ################## Imports ##################
 
 import pandas as pd
 import random
-import dash
+import plotly.express as px #Equivalent to: import plotly.graph_objects as go
+import plotly.graph_objects as go 
+from dash import Dash, html, dash_table, dcc, callback, Output, Input
 
 ################## Variable Definitions ##################
 
@@ -132,6 +135,7 @@ domains_questions = {
 }
 
 ################## Helper Methods ##################
+
 def generate_random_responses(): 
     '''Function to generate random responses.'''
     responses = [] 
@@ -147,34 +151,161 @@ def calculate_score(responses, domain_questions, reversal):
         score = 0
         for item in questions:
             if item in reversal:
-                score += 6 - responses[item]  # TODO: ESA - should this be 5 instead of 6 for the reversal score calc? 
+                score += 5 - responses[item]  
             else:
                 score += responses[item]
         scores[domain] = score / len(questions)
     return scores
 
-################## Main Data Creation Method ##################
+################## Data Creation ##################
 
-def create_data(file_to_create, num_participants):
+def create_data(num_participants):
     '''Simulate the HEXACO survey for multiple participants and store 
-    them in a CSV file. Returns the data as a pandas dataframe.'''
+    them as a Pandas dataframe.'''
     data = {}
     for i in range(1, num_participants + 1): 
         random_responses = generate_random_responses()
         score = calculate_score(random_responses, domains_questions, reversal)
         data[i] = score
-    # Save the data to a csv file
+
+    # Store the data as a dataframe
     df = pd.DataFrame(data)
-    # Transpose (flip) the dataframe so that participants are rows and HEXACO scores are columns
-    df = df.T 
-    df.to_csv(file_to_create, index=False)
+
     return df   
 
-################## Dash Configuration ##################
-# TODO: ESA - dash setup
+# Generate simulated personality test data
+users = 200
+df = create_data(users)
+
+# Capture a version of dataframe that is transposed (flipped)
+# Participants are rows and HEXACO scores are columns
+data_transposed = df.T
+
+# Use built-in dataframe function to generate descriptive statistics
+summary_stats = data_transposed.describe()
+mean = summary_stats.loc['mean'] 
+std = summary_stats.loc['std']
+
+################## Averages bar graph ##################
+
+horizontal_labels = [ 
+    "Honesty-Humility (h)",
+    "Emotionality (e)",
+    "eXtraversion (x)",
+    "Agreeableness (a)",
+    "Conscientiousness (c)",
+    "Openness (o)"
+]
+
+participant_1 = df[1]
+participant_2 = df[2]
+participant_3 = df[3]
+participant_4 = df[4]
+participant_5 = df[5]
+
+compare_to_average = go.Figure(
+    data=[
+        go.Bar(
+            name="Average",
+            x=horizontal_labels,
+            y=mean,
+            offsetgroup=0,
+        ),
+        go.Bar(
+            name="Participant 1",
+            x=horizontal_labels,
+            y=participant_1,
+            offsetgroup=1,
+        ),
+        go.Bar(
+            name="Participant 2",
+            x=horizontal_labels,
+            y=participant_2,
+            offsetgroup=2,
+        ),
+        go.Bar(
+            name="Participant 3",
+            x=horizontal_labels,
+            y=participant_3,
+            offsetgroup=3,
+        ),
+        go.Bar(
+            name="Participant 4",
+            x=horizontal_labels,
+            y=participant_4,
+            offsetgroup=4,
+        ),
+        go.Bar(
+            name="Participant 5",
+            x=horizontal_labels,
+            y=participant_5,
+            offsetgroup=5,
+        ),
+    ],
+    layout=go.Layout(
+        title="First 5 Participant's Scores, as Compared to the Overall Average:",
+        yaxis_title="Score"
+    )
+)
+
+################## Scatter plot with mean and standard deviation ##################
+
+prt_values = [
+    df[1],
+    df[2],
+    df[3],
+    df[4],
+    df[5]
+]
+
+trait_scatter = px.bar(x=mean.index, y=mean, error_y=std)
+
+colors_used = []
+
+for i, my_values in enumerate(prt_values):
+    color = random.choice(px.colors.qualitative.Plotly)
+    while color in colors_used:
+        color = random.choice(px.colors.qualitative.Plotly)
+        colors_used.append(color)
+
+    trait_scatter.add_trace(go.Scatter(
+        x=['h', 'e', 'x', 'a', 'c', 'o'],
+        y=my_values,
+        mode='markers',
+        marker=dict(color=color, size=15),
+        name=f'Participant {i+1}'
+    ))
+
+trait_scatter.update_layout(
+    xaxis_title='Trait',
+    yaxis_title='Mean',
+    title=f'Average for Each Trait for First {len(prt_values)} Participants',
+    yaxis=dict(range=[2, 4])
+    
+)
+
+################## Dash UI App Configuration ##################
+
+# Initialize the app
+app = Dash()
+
+# App layout
+app.layout = [
+    html.H1('HEXACO Personality Generated Data & Visualizations'),
+    html.Hr(),
+    html.P('Simulated scores data ranging from 1-5 for 200 participants across 6 categories.'),
+    html.P('Trait categories are: Honesty-Humility (h), Emotionality (e), eXtraversion (x), Agreeableness (a), Conscientiousness (c), and Openness (o):'),
+    dash_table.DataTable(data=data_transposed.to_dict('records'), page_size=10),
+
+    # Compare to Average bar graphs
+    dcc.Graph(figure=compare_to_average),
+
+    # Scatter
+    dcc.Graph(figure=trait_scatter),
+]
+
 
 # This makes it so it will only run if the script is run directly (main)
-# if it is imported into another script it will not run
+# If it is imported into another script it will not run
 if __name__ == '__main__':
-    df = create_data("data/combined-scores.csv", 200)
-    print(df)
+    app.run(debug=True)
